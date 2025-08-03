@@ -6,7 +6,7 @@ from coin_gecko import fetch_ohlcv_coin_gecko
 st.set_page_config(layout="wide")
 st.title("📊 Crypto Multi-Indicator Dashboard")
 
-# Top 20 USDC párok
+# Top 20 USD párok (csak a nevek maradtak USDC-s formában, de adat USD lesz)
 crypto_options = [
     "BTC-USDC", "ETH-USDC", "SOL-USDC", "ADA-USDC", "XRP-USDC", "AVAX-USDC", "DOGE-USDC", "SHIB-USDC",
     "DOT-USDC", "MATIC-USDC", "LINK-USDC", "NEAR-USDC", "TRX-USDC", "UNI-USDC",
@@ -29,20 +29,16 @@ if not coin_id:
     st.error("❌ Ismeretlen kriptopár.")
     st.stop()
 
-with st.spinner("🔄 Adatok betöltése USDC-vel..."):
-    df, used_currency = fetch_ohlcv_coin_gecko(coin_id, days=180)
+with st.spinner(f"🔄 Adatok betöltése {symbol}-USD árfolyammal..."):
+    df, used_currency = fetch_ohlcv_coin_gecko(coin_id, currency="usd")
 
 if df is None or df.empty:
-    st.warning(f"⚠️ Nincs adat {symbol}-USDC párosra, próbálkozás {symbol}-USD párossal...")
-    with st.spinner("🔄 Adatok betöltése USD-vel..."):
-        df, used_currency = fetch_ohlcv_coin_gecko(coin_id, days=180)
-    if df is None or df.empty:
-        st.error("❌ Adatok nem érhetők el a kiválasztott kriptopárhoz.")
-        st.stop()
+    st.error(f"❌ Adatok nem érhetők el a kiválasztott {symbol}-USD párosra.")
+    st.stop()
 
 df_ind = calculate_indicators(df)
 
-st.markdown(f"#### Aktuális árfolyam ({symbol}-{used_currency.upper()})")
+st.markdown(f"#### Aktuális árfolyam ({symbol.upper()}-{used_currency.upper()})")
 st.line_chart(df_ind['Close'])
 
 st.subheader("📉 Drawdown")
