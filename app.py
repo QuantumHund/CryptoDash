@@ -3,30 +3,32 @@ import pandas as pd
 import numpy as np
 import requests
 import ta
+import datetime
 import altair as alt
 
 st.set_page_config(layout="wide")
-st.title("📊 Crypto Multi-Indicator Dashboard (USDC pairs)")
+st.title("\U0001F4CA Crypto Multi-Indicator Dashboard")
 
-# --- Top 20 coinok CoinGecko ID szerint ---
+# Coin list (top + extras)
 coin_options = {
     "BTC-USDC": "bitcoin",
     "ETH-USDC": "ethereum",
+    "BNB-USDC": "binancecoin",
     "SOL-USDC": "solana",
     "XRP-USDC": "ripple",
+    "DOGE-USDC": "dogecoin",
     "ADA-USDC": "cardano",
     "AVAX-USDC": "avalanche-2",
     "MATIC-USDC": "matic-network",
     "DOT-USDC": "polkadot",
-    "TRX-USDC": "tron",
-    "DOGE-USDC": "dogecoin",
+    "SHIB-USDC": "shiba-inu",
     "LINK-USDC": "chainlink",
-    "LTC-USDC": "litecoin",
-    "OP-USDC": "optimism",
-    "ARB-USDC": "arbitrum",
+    "NEAR-USDC": "near",
+    "APT-USDC": "aptos",
+    "AR-USDC": "arweave",
     "ATOM-USDC": "cosmos",
     "VRA-USDC": "verasity",
-    "VIRTUAL-USDC": "virtual-dao",
+    "VIRTUAL-USDC": "virtual",
     "ROUTE-USDC": "route",
     "LTO-USDC": "lto-network"
 }
@@ -34,8 +36,7 @@ coin_options = {
 selected_label = st.selectbox("Válassz kriptopárt (USDC ellenében)", list(coin_options.keys()))
 coin_id = coin_options[selected_label]
 
-# --- Adatlekérés CoinGecko-ról, fallback USD-re ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def fetch_ohlcv_coin_gecko(coin_id, days=180):
     for vs_currency in ["usdc", "usd"]:
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
@@ -58,89 +59,101 @@ def fetch_ohlcv_coin_gecko(coin_id, days=180):
             df["Open"] = df["Close"]
             df["High"] = df["Close"]
             df["Low"] = df["Close"]
-            return df[["Open", "High", "Low", "Close", "Volume"]]
+            return df[["Open", "High", "Low", "Close", "Volume"]], vs_currency.upper()
+    return pd.DataFrame(), "N/A"
 
-        elif resp.status_code == 400 and vs_currency == "usdc":
-            continue  # próbálja USD-vel
-    return pd.DataFrame()
-
-df = fetch_ohlcv_coin_gecko(coin_id)
+df, used_currency = fetch_ohlcv_coin_gecko(coin_id)
 
 if df.empty:
-    st.error(f"❌ Adatok nem érhetők el a kiválasztott kriptopárhoz.")
+    st.error("\u274c Adatok nem érhetők el a kiválasztott kriptopárhoz.")
     st.stop()
 
-# --- Indikátorok számítása ---
-try:
-    df["Drawdown"] = (df["Close"] / df["Close"].cummax()) - 1
-    df["RSI"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
-    df["SMA50"] = df["Close"].rolling(window=50).mean()
-    df["SMA200"] = df["Close"].rolling(window=200).mean()
-    macd = ta.trend.MACD(df["Close"])
-    df["MACD"] = macd.macd()
-    df["MACD_signal"] = macd.macd_signal()
-    stoch = ta.momentum.StochasticOscillator(df["High"], df["Low"], df["Close"])
-    df["Stoch"] = stoch.stoch()
-    df["OBV"] = (np.sign(df["Close"].diff()) * df["Volume"]).fillna(0).cumsum()
+price_col = "Close"
+df["Drawdown"] = (df[price_col] / df[price_col].cummax()) - 1
 
-    # MWhalekiller indikátor: Bullish ha Close > SMA21 és EMA34
-    df["EMA34"] = df["Close"].ewm(span=34).mean()
-    df["SMA21"] = df["Close"].rolling(window=21).mean()
-    df["WhaleSupport"] = ((df["Close"] > df["EMA34"]) & (df["Close"] > df["SMA21"])).astype(int)
-except Exception as e:
-    st.error(f"Hiba az indikátor számításakor: {e}")
-    st.stop()
+df["RSI"] = ta.momentum.RSIIndicator(df[price_col], window=14).rsi()
+df["SMA50"] = df[price_col].rolling(window=50).mean()
+df["SMA200"] = df[price_col].rolling(window=200).mean()
 
-# --- Scoring ---
-df["Buy_Score"] = (
-    ((df["RSI"] < 30).astype(int)) +
-    ((df["Drawdown"] < -0.10).astype(int)) +
-    ((df["MACD"] > df["MACD_signal"]).astype(int)) +
-    ((df["SMA50"] > df["SMA200"]).astype(int)) +
-    ((df["Close"] < df["SMA21"]).astype(int)) +  # whale band alatt nincs
-    ((df["Stoch"] < 20).astype(int)) +
-    ((df["OBV"] > df["OBV"].rolling(window=14).mean()).astype(int)) +
-    (df["WhaleSupport"])
+macd = ta.trend.MACD(df[price_col])
+df["MACD"] = macd.macd()
+df["MACD_signal"] = macd.macd_signal()
+
+boll = ta.volatility.BollingerBands(df[price_col])
+df["BB_upper"] = boll.bollinger_hband()
+df["BB_lower"] = boll.bollinger_lband()
+
+stoch = ta.momentum.StochasticOscillator(df["High"], df["Low"], df[price_col])
+df["Stoch"] = stoch.stoch()
+
+df["OBV"] = (np.sign(df["Close"].diff()) * df["Volume"]).fillna(0).cumsum()
+
+# Dummy whalekiller band
+df["EMA34"] = df[price_col].ewm(span=34).mean()
+df["SMA21"] = df[price_col].rolling(window=21).mean()
+df["Band"] = np.where((df[price_col] > df["EMA34"]) & (df[price_col] > df["SMA21"]), 1,
+                np.where((df[price_col] < df["EMA34"]) & (df[price_col] < df["SMA21"]), -1, 0))
+
+# VIX surrogate (placeholder)
+df["VIX"] = df["Close"].pct_change().rolling(5).std() * 100
+
+# Score system
+score_cols = [
+    (df["RSI"] < 30).astype(int),
+    (df["Drawdown"] < -0.10).astype(int),
+    (df["MACD"] > df["MACD_signal"]).astype(int),
+    (df["SMA50"] > df["SMA200"]).astype(int),
+    (df[price_col] < df["BB_lower"]).astype(int),
+    (df["Stoch"] < 20).astype(int),
+    (df["Band"] == 1).astype(int),
+    (df["VIX"] < 15).astype(int)
+]
+
+df["Buy_Score"] = sum(score_cols)
+
+score_cols_sell = [
+    (df["RSI"] > 70).astype(int),
+    (df["Drawdown"] > -0.01).astype(int),
+    (df["MACD"] < df["MACD_signal"]).astype(int),
+    (df["SMA50"] < df["SMA200"]).astype(int),
+    (df[price_col] > df["BB_upper"]).astype(int),
+    (df["Stoch"] > 80).astype(int),
+    (df["Band"] == -1).astype(int),
+    (df["VIX"] > 20).astype(int)
+]
+
+df["Sell_Score"] = sum(score_cols_sell)
+
+# Display
+st.subheader(f"\U0001F4C8 Árfolyam ({selected_label.replace('USDC', used_currency)})")
+st.line_chart(df[price_col])
+
+st.subheader("\U0001F4C9 RSI + háttér")
+rsi_chart = alt.Chart(df.reset_index()).mark_line().encode(
+    x='Date:T', y='RSI:Q', tooltip=['Date:T', 'RSI:Q']
+).interactive()
+
+bands = alt.Chart(df.reset_index()).mark_rect(opacity=0.15).encode(
+    x='Date:T',
+    x2='Date:T',
+    color=alt.condition(
+        alt.datum.RSI > 70, alt.value('red'),
+        alt.condition(alt.datum.RSI < 30, alt.value('green'), alt.value('transparent'))
+    )
 )
+st.altair_chart(bands + rsi_chart, use_container_width=True)
 
-df["Sell_Score"] = (
-    ((df["RSI"] > 70).astype(int)) +
-    ((df["Drawdown"] > -0.01).astype(int)) +
-    ((df["MACD"] < df["MACD_signal"]).astype(int)) +
-    ((df["SMA50"] < df["SMA200"]).astype(int)) +
-    ((df["Close"] > df["SMA21"]).astype(int)) +
-    ((df["Stoch"] > 80).astype(int)) +
-    ((df["OBV"] < df["OBV"].rolling(window=14).mean()).astype(int)) +
-    (~(df["WhaleSupport"].astype(bool))).astype(int)
-)
+st.subheader("\U0001F4C8 OBV")
+st.line_chart(df['OBV'])
 
-# --- Chartok ---
-st.subheader(f"📈 Árfolyam ({selected_label})")
-st.line_chart(df["Close"])
-
-st.subheader("📉 RSI (zöld háttér: oversold, piros: overbought)")
-rsi_color = ["#e6f4ea" if r < 30 else "#fcebea" if r > 70 else "white" for r in df["RSI"]]
-rsi_df = pd.DataFrame({"Date": df.index, "RSI": df["RSI"], "Color": rsi_color})
-rsi_chart = alt.Chart(rsi_df).mark_line().encode(
-    x='Date:T', y='RSI:Q', tooltip=["Date:T", "RSI:Q"]
-).properties(height=200)
-st.altair_chart(rsi_chart, use_container_width=True)
-
-st.subheader("🟢 Buy & 🔴 Sell Score (0–8)")
-score_df = df.reset_index()[["Date", "Buy_Score", "Sell_Score"]].melt(
-    id_vars="Date", var_name="Signal", value_name="Score"
-)
-color_scale = alt.Scale(domain=["Buy_Score", "Sell_Score"], range=["green", "red"])
-score_chart = alt.Chart(score_df).mark_line().encode(
-    x="Date:T", y="Score:Q", color=alt.Color("Signal:N", scale=color_scale),
-    tooltip=["Date:T", "Signal:N", "Score:Q"]
+st.subheader("\U0001F4CA Buy/Sell Score")
+df_score = df.reset_index()[["Date", "Buy_Score", "Sell_Score"]]
+df_score = df_score.melt(id_vars='Date', var_name='Signal', value_name='Score')
+color_scale = alt.Scale(domain=['Buy_Score', 'Sell_Score'], range=['green', 'red'])
+score_chart = alt.Chart(df_score).mark_line().encode(
+    x='Date:T', y='Score:Q', color=alt.Color('Signal:N', scale=color_scale), tooltip=['Date:T', 'Signal:N', 'Score:Q']
 ).interactive()
 st.altair_chart(score_chart, use_container_width=True)
 
-# --- OBV chart külön ---
-st.subheader("📊 On-Balance Volume (OBV)")
-st.line_chart(df["OBV"])
-
-# --- Részletes tábla ---
-st.subheader("📋 Részletes adat (utolsó 30 nap)")
+st.subheader("\U0001F5D2️ Részletes adatok")
 st.dataframe(df.tail(30))
