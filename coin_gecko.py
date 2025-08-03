@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-import datetime
 
 def fetch_ohlcv_coin_gecko(coin_id: str, days: int = 180):
     currencies = ['usdc', 'usd']
