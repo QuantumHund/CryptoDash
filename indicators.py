@@ -1,4 +1,4 @@
-import pandas as pd
+mport pandas as pd
 import ta
 
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -20,12 +20,12 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df[price_col])
     df['Stoch'] = stoch.stoch()
 
-    # OBV kézi számítás (nem minden API adja)
-    df['OBV'] = (df['Volume'] * ((df[price_col] > df[price_col].shift()).astype(int) - 
+    # OBV kézi számítás (mivel nem minden API adja)
+    df['OBV'] = (df['Volume'] * ((df[price_col] > df[price_col].shift()).astype(int) -
                                  (df[price_col] < df[price_col].shift()).astype(int))).cumsum()
 
-    # VIX placeholder (konstans érték)
-    df['VIX_level'] = 15
+    # VIX és egyéb nem elérhető, így placeholder
+    df['VIX_level'] = 15  # példa konstans
 
     df['Buy_Score'] = (
         (df['RSI'] < 30).astype(int) +
