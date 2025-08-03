@@ -1,6 +1,4 @@
 streamlit
 pandas
-yfinance
 ta
-altair
-numpy
+requests
