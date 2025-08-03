@@ -29,12 +29,16 @@ if not coin_id:
     st.error("❌ Ismeretlen kriptopár.")
     st.stop()
 
-with st.spinner("🔄 Adatok betöltése..."):
-    df, used_currency = fetch_ohlcv_coin_gecko(coin_id)
+with st.spinner("🔄 Adatok betöltése USDC-vel..."):
+    df, used_currency = fetch_ohlcv_coin_gecko(coin_id, days=180)
 
 if df is None or df.empty:
-    st.error("❌ Adatok nem érhetők el a kiválasztott kriptopárhoz.")
-    st.stop()
+    st.warning(f"⚠️ Nincs adat {symbol}-USDC párosra, próbálkozás {symbol}-USD párossal...")
+    with st.spinner("🔄 Adatok betöltése USD-vel..."):
+        df, used_currency = fetch_ohlcv_coin_gecko(coin_id, days=180)
+    if df is None or df.empty:
+        st.error("❌ Adatok nem érhetők el a kiválasztott kriptopárhoz.")
+        st.stop()
 
 df_ind = calculate_indicators(df)
 
